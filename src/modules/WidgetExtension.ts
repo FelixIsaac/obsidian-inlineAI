@@ -43,6 +43,9 @@ class FloatingWidget extends WidgetType {
 	//Secondary Action Buttons
 	private acceptButton!: HTMLButtonElement;
 	private discardButton!: HTMLButtonElement;
+	private retryButton!: HTMLButtonElement;
+
+	private lastPrompt: string = "";
 
 	// Track the current index in message history for up/down navigation
 	private messageHistoryIndex: number | null = null;
@@ -171,6 +174,7 @@ class FloatingWidget extends WidgetType {
 
 		if (this.acceptButton) this.acceptButton.remove();
 		if (this.discardButton) this.discardButton.remove();
+		if (this.retryButton) this.retryButton.remove();
 
 		// Remove flag/class
 		document.body.classList.remove("inlineai-widget-open");
@@ -332,7 +336,9 @@ class FloatingWidget extends WidgetType {
 						},
 					]),
 
-					// 3) Enable slash-command autocompletion
+					// 3) Wrap long lines
+					EditorView.lineWrapping,
+					// 4) Enable slash-command autocompletion
 					slashCommandAutocompletion({
 						prefix: this.plugin.settings.commandPrefix,
 						customCommands: this.plugin.settings.customCommands,
@@ -392,6 +398,8 @@ class FloatingWidget extends WidgetType {
 		// Grab the selected text from the stored selection info
 		const selectedText = this.selectionInfo?.text ?? "";
 
+		this.lastPrompt = userPrompt;
+
 		// Show loader
 		this.toggleLoading(true);
 
@@ -402,6 +410,12 @@ class FloatingWidget extends WidgetType {
 			})
 			.catch((error) => {
 				console.error("Error calling AI:", error);
+				const errEl = this.innerDom.createEl("span", {
+					cls: "inlineai-error",
+					text: `❌ ${error?.message ?? "Request failed"}`,
+				});
+				this.innerDom.appendChild(errEl);
+				setTimeout(() => errEl.remove(), 6000);
 			})
 			.finally(() => {
 				// Hide loader
@@ -433,6 +447,12 @@ class FloatingWidget extends WidgetType {
 		this.submitButton.classList.add("hidden");
 		this.createAcceptButton();
 		this.createDiscardButton();
+		this.createRetryButton();
+		const hint = this.innerDom.createEl("span", {
+			cls: "inlineai-hint",
+			text: "↵ accept · Esc dismiss",
+		});
+		this.innerDom.appendChild(hint);
 	}
 
 	/**
@@ -500,6 +520,52 @@ class FloatingWidget extends WidgetType {
 
 	private discardAction() {
 		this.dismissTooltip();
+	}
+
+	private createRetryButton() {
+		if (!this.retryButton) {
+			this.retryButton = this.innerDom.createEl("button", {
+				cls: "retry-button tooltip-button",
+			});
+			setIcon(this.retryButton, "rotate-ccw");
+			this.retryButton.setAttribute("aria-label", "Retry");
+			this.retryButton.addEventListener("mousedown", (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+			});
+			this.retryButton.onclick = () => {
+				if (this.acceptButton) {
+					this.acceptButton.remove();
+					this.acceptButton = undefined as any;
+				}
+				if (this.discardButton) {
+					this.discardButton.remove();
+					this.discardButton = undefined as any;
+				}
+				if (this.retryButton) {
+					this.retryButton.remove();
+					this.retryButton = undefined as any;
+				}
+				this.innerDom
+					.querySelectorAll(".inlineai-hint")
+					.forEach((e) => e.remove());
+				this.submitButton.classList.add("hidden");
+				this.toggleLoading(true);
+				const selectedText = this.selectionInfo?.text ?? "";
+				this.chatApiManager
+					.callSelection(this.lastPrompt, selectedText)
+					.then(() => {
+						this.showActionButtons();
+					})
+					.catch((error) => {
+						console.error("Retry error:", error);
+					})
+					.finally(() => {
+						this.toggleLoading(false);
+					});
+			};
+			this.innerDom.appendChild(this.retryButton);
+		}
 	}
 }
 

@@ -19,7 +19,7 @@
 .cm-cursor-overlay-inner {
 	display: flex;
 	flex-direction: row;
-	align-items: center;
+	align-items: flex-start;
 
 	overflow: visible;
 }
@@ -28,9 +28,9 @@
 	display: flex;
 	padding: 1px 0 1px 10px;
 	height: auto;
+	min-height: 28px;
 	width: auto;
-	max-height: 100%;
-	align-items: center;
+	align-items: flex-start;
 	background-color: var(--background-primary);
 	border: 1px solid var(--background-modifier-border-focus);
 	border-radius: 4px;
@@ -38,6 +38,20 @@
 	margin-left: 8px;
 	flex: 1 0 0;
 	transition: flex-basis 0.3s ease;
+}
+
+.cm-tooltip-editor .cm-editor {
+	width: 100%;
+}
+
+.cm-tooltip-editor .cm-content {
+	white-space: pre-wrap !important;
+	word-break: break-word;
+}
+
+.cm-tooltip-editor .cm-line {
+	white-space: pre-wrap !important;
+	word-break: break-word;
 }
 
 .cm-cursor-overlay .cm-editor {
@@ -155,4 +169,19 @@
 /* Slash command highlighting */
 .cm-slash-command {
 	color: var(--text-accent);
+}
+
+.inlineai-hint {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	margin-left: 8px;
+	white-space: nowrap;
+	align-self: center;
+}
+
+.inlineai-error {
+	font-size: var(--font-ui-smaller);
+	color: var(--color-red);
+	margin-left: 8px;
+	align-self: center;
 }
