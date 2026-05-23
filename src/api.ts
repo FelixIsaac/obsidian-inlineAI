@@ -91,9 +91,14 @@ export class ChatApiManager {
 		| null {
 		try {
 			if (settings.messageHistory) {
-				this.messageHistory = new MessageQueue<HistoryMessage>(
-					MESSAGE_HISTORY_LIMIT,
-				);
+				this.messageHistory = new MessageQueue<HistoryMessage>(MESSAGE_HISTORY_LIMIT);
+				try {
+					const saved = localStorage.getItem("inlineai-prompt-history");
+					if (saved) {
+						const items: HistoryMessage[] = JSON.parse(saved);
+						items.forEach((item) => this.messageHistory.enqueue(item));
+					}
+				} catch {}
 			} else {
 				this.messageHistory = new MessageQueue<HistoryMessage>(0);
 			}
@@ -304,6 +309,15 @@ export class ChatApiManager {
 			return "⚠️ Failed to process request.";
 		}
 	}
+	private detectDocumentType(filename: string, doc: string): string {
+		if (/\d{4}-\d{2}-\d{2}/.test(filename)) return "daily-note";
+		if (/meeting|minutes|standup|1-on-1|1on1/i.test(filename + doc.slice(0, 500))) return "meeting-note";
+		const codeBlocks = (doc.match(/```/g) ?? []).length;
+		if (codeBlocks >= 6) return "code-note";
+		if (/book|literature|reading|summary|review/i.test(filename)) return "literature-note";
+		return "";
+	}
+
 	private extractNoteContext(selectionText: string): string {
 		try {
 			const file = this.app.workspace.getActiveFile();
@@ -315,6 +329,21 @@ export class ChatApiManager {
 			const cm = (markdownView.editor as any).cm as EditorView;
 			const doc = cm.state.doc.toString();
 			const cursor = cm.state.selection.main.from;
+
+			// Extract frontmatter metadata
+			let frontmatterContext = "";
+			if (doc.startsWith("---")) {
+				const fmEnd = doc.indexOf("\n---", 3);
+				if (fmEnd !== -1) {
+					const fm = doc.slice(3, fmEnd).trim();
+					const relevantLines = fm.split("\n").filter((line) =>
+						/^(tags|type|status|aliases|category|topic):/i.test(line.trim()),
+					);
+					if (relevantLines.length > 0) {
+						frontmatterContext = `Frontmatter: ${relevantLines.join(", ")}`;
+					}
+				}
+			}
 
 			// Find nearest heading above cursor
 			const docBeforeCursor = doc.slice(0, cursor);
@@ -356,6 +385,15 @@ export class ChatApiManager {
 			let contextStr = "";
 			if (noteTitle) contextStr += `Note: ${noteTitle}\n`;
 			if (nearestHeading) contextStr += `Section: ${nearestHeading}\n`;
+			if (frontmatterContext) contextStr += `${frontmatterContext}\n`;
+			const docType = this.detectDocumentType(noteTitle, doc);
+			const typeHints: Record<string, string> = {
+				"daily-note": "Document type: daily note — prefer concise bullets and task items.",
+				"meeting-note": "Document type: meeting note — prefer action items, decisions, attendees.",
+				"code-note": "Document type: technical/code note — prefer technical precision and code blocks.",
+				"literature-note": "Document type: literature note — prefer quotation-aware, citation-friendly responses.",
+			};
+			if (typeHints[docType]) contextStr += `${typeHints[docType]}\n`;
 			if (beforeParas.length > 0)
 				contextStr += `\nContext before:\n${beforeParas.join("\n\n")}`;
 			if (afterParas.length > 0)
@@ -399,6 +437,10 @@ export class ChatApiManager {
 		const mode = isCursor ? "cursor" : "selection";
 		if (this.settings.messageHistory) {
 			this.messageHistory.enqueue({ mode, userPrompt });
+			try {
+				const items = this.messageHistory.getItems();
+				localStorage.setItem("inlineai-prompt-history", JSON.stringify(items.slice(-20)));
+			} catch {}
 		}
 
 		if (isCursor) {
@@ -417,7 +459,21 @@ export class ChatApiManager {
 		const enhancedSystemPrompt = noteContext
 			? `${systemPrompt}\n\n---\nDocument context (for reference only — do not include in output):\n${noteContext}`
 			: systemPrompt;
-		return this.handleEditorUpdate(enhancedSystemPrompt, finalUserPrompt);
+
+		const selLen = selectedText.trim().length;
+		let scopeHint = "";
+		if (selLen > 0 && selLen < 80) {
+			scopeHint = "\n\nScope: The selection is a single word or short phrase. Output must be equally brief — match the selection length exactly.";
+		} else if (selLen < 400) {
+			scopeHint = "\n\nScope: The selection is a sentence or two. Output should be roughly the same length — one to two sentences.";
+		} else if (selLen < 1500) {
+			scopeHint = "\n\nScope: The selection is a paragraph. Output should be roughly one paragraph.";
+		} else if (selLen >= 1500) {
+			scopeHint = "\n\nScope: The selection is multiple paragraphs. Match the structure and length of the input.";
+		}
+		const finalSystemPrompt = enhancedSystemPrompt + scopeHint;
+
+		return this.handleEditorUpdate(finalSystemPrompt, finalUserPrompt);
 	}
 
 	/**

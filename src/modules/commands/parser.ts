@@ -6,11 +6,12 @@ export function parseCommand(
 	customCommands: SlashCommand[],
 ): string {
 	const allCommands = [...BUILT_IN_COMMANDS, ...customCommands];
+	let result = userInput;
 	for (const command of allCommands) {
 		const commandPattern = `${prefix}${command.keyword}`;
-		if (userInput.includes(commandPattern)) {
-			return userInput.replace(commandPattern, command.prompt);
+		if (result.includes(commandPattern)) {
+			result = result.replace(commandPattern, command.prompt);
 		}
 	}
-	return userInput;
+	return result;
 }
